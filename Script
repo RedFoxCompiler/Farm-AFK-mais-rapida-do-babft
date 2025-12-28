@@ -1,0 +1,136 @@
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local player = Players.LocalPlayer
+
+local _G_CYCLE_ID = 0
+local START_VELOCITY = 150
+local MAX_VELOCITY = 300
+local ACCEL_DURATION = 5
+local RESET_DISTANCE = 25 
+local CLAIM_INTERVAL = 0.1 -- Velocidade do Claim Gold (segundos)
+
+local startTime = os.time()
+local initialGold = 0
+
+-- interface
+pcall(function()
+    game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
+    for i,v in pairs(getconnections(player.Idled)) do v:Disable() end
+end)
+
+local function getGoldValue()
+    local d = player:FindFirstChild("Data")
+    local g = d and d:FindFirstChild("Gold")
+    return g and g.Value or 0
+end
+initialGold = getGoldValue()
+
+-- loop de claim gold pra poder pegar os gold quando passar nas fase
+task.spawn(function()
+    local remote = workspace:WaitForChild("ClaimRiverResultsGold", 10)
+    while true do
+        if remote then
+            remote:FireServer()
+        end
+        task.wait(CLAIM_INTERVAL) -- Executa a cada 0.2 segundos
+    end
+end)
+
+local sg = player.PlayerGui:FindFirstChild("RedsAI_Flow") or Instance.new("ScreenGui", player.PlayerGui)
+sg.Name = "RedsAI_Flow"
+sg.IgnoreGuiInset = true
+sg.ResetOnSpawn = false
+
+local frame = Instance.new("Frame", sg)
+frame.Size = UDim2.new(1, 0, 1, 0)
+frame.BackgroundColor3 = Color3.new(0, 0, 0)
+frame.BackgroundTransparency = 0.1
+
+local label = Instance.new("TextLabel", frame)
+label.Size = UDim2.new(1, 0, 1, 0)
+label.BackgroundTransparency = 1
+label.TextColor3 = Color3.new(1, 1, 1)
+label.Font = Enum.Font.Code
+label.TextSize = 24
+label.RichText = true
+
+task.spawn(function()
+    while true do
+        local currentGold = getGoldValue()
+        local elapsed = os.time() - startTime
+        local goldGained = currentGold - initialGold
+        local gph = elapsed > 5 and math.floor((goldGained / math.max(elapsed, 1)) * 3600) or 0
+        label.Text = string.format(
+            "GOLD FARM <font color='#ff0000'>ULTRA SPEED</font>\n\n" ..
+            "<font color='#ffd700'>GOLD: %d</font>\n" ..
+            "<font color='#00ff00'>GAINED: %d</font>\n" ..
+            "<font color='#ffaa00'>ESTIMATED GPH: %d/h</font>",
+            currentGold, goldGained, gph
+        )
+        task.wait(0.5)
+    end
+end)
+
+local function resetarCiclo()
+    local args = { "FoxCharacter" }
+    local remote = workspace:FindFirstChild("ChangeCharacter")
+    if remote then
+        remote:FireServer(unpack(args))
+    end
+end
+
+local function executarCiclo(char)
+    _G_CYCLE_ID = _G_CYCLE_ID + 1
+    local myID = _G_CYCLE_ID
+    
+    local hum = char:WaitForChild("Humanoid", 20)
+    local root = char:WaitForChild("HumanoidRootPart", 20)
+    
+    local stagesFolder = workspace:WaitForChild("BoatStages"):WaitForChild("NormalStages")
+    local stage1 = stagesFolder:WaitForChild("CaveStage1"):WaitForChild("DarknessPart")
+    local stage10 = stagesFolder:WaitForChild("CaveStage10"):WaitForChild("DarknessPart")
+
+    local bv = Instance.new("BodyVelocity", root)
+    bv.Velocity = Vector3.zero
+    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+
+    root.CFrame = stage1.CFrame
+    task.wait(0.1)
+
+    local startPos = root.Position
+    local targetPos = stage10.Position
+    local direction = (targetPos - startPos).Unit
+    local distanceTraveled = 0
+    local cycleStartTime = tick()
+
+    local connection
+    connection = RunService.Heartbeat:Connect(function(dt)
+        if myID ~= _G_CYCLE_ID or not root or not root.Parent then 
+            connection:Disconnect() 
+            return 
+        end
+
+        local timeSinceStart = tick() - cycleStartTime
+        local currentVelocity = (timeSinceStart < ACCEL_DURATION) 
+            and (START_VELOCITY + ((timeSinceStart / ACCEL_DURATION) * (MAX_VELOCITY - START_VELOCITY)))
+            or MAX_VELOCITY
+
+        distanceTraveled = distanceTraveled + (currentVelocity * dt)
+        local currentPos = startPos + (direction * distanceTraveled)
+        
+        if (currentPos - targetPos).Magnitude <= RESET_DISTANCE then
+            connection:Disconnect()
+            resetarCiclo()
+        else
+            root.CFrame = CFrame.new(currentPos)
+        end
+    end)
+end
+
+player.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    executarCiclo(char)
+end)
+
+if player.Character then task.spawn(executarCiclo, player.Character) end
